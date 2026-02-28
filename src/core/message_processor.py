@@ -1,12 +1,13 @@
 """
-消息处理器 - 精简版（带 LLM 回复）
-功能：未读检测 -> 点击进入 -> 抓取聊天记录 -> LLM 回复
+消息处理器 - 精简版（带知识库 + LLM 回复）
+功能：未读检测 -> 点击进入 -> 抓取聊天记录 -> 知识库匹配 -> LLM 回复
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QObject, Signal, QTimer
@@ -14,11 +15,13 @@ from PySide6.QtCore import QObject, Signal, QTimer
 from .session_manager import SessionManager
 from ..services.browser_service import BrowserService
 from ..services.llm_service import LLMService
+from ..services.knowledge_service import KnowledgeService
 from ..data.config_manager import ConfigManager
+from ..data.knowledge_repository import KnowledgeRepository
 
 
 class MessageProcessor(QObject):
-    """消息编排器 - 带 LLM 回复"""
+    """消息编排器 - 带知识库和 LLM 回复"""
 
     status_changed = Signal(str)
     log_message = Signal(str)
@@ -38,6 +41,14 @@ class MessageProcessor(QObject):
         self.sessions = session_manager
         self.llm_service = llm_service
         self.config_manager = config_manager
+
+        # 初始化知识库服务
+        self.knowledge_repository = KnowledgeRepository(data_file=Path("config") / "knowledge_base.json")
+        self.knowledge_service = KnowledgeService(
+            repository=self.knowledge_repository,
+            address_config_path=Path("config") / "address.json",
+        )
+        self.knowledge_threshold = 0.6  # 知识库匹配阈值
 
         self._running = False
         self._page_ready = False
@@ -97,6 +108,11 @@ class MessageProcessor(QObject):
     def reload_prompt_docs(self):
         """占位：Prompt 重载已禁用"""
         self.log_message.emit("⚠️ Prompt 功能已禁用")
+
+    def reload_knowledge_base(self):
+        """重载知识库"""
+        self.knowledge_repository.load()
+        self.log_message.emit("✅ 知识库已重载")
 
     def _on_page_loaded(self, success: bool):
         self._page_ready = success
@@ -193,13 +209,30 @@ class MessageProcessor(QObject):
         self._last_processed_marker = marker
         self.message_received.emit({"user_name": user_name, "text": latest_user_message})
 
-        # 调用 LLM 回复
+        # 调用知识库匹配
         self._processing_reply = True
         self._pending_reply = {
             "user_name": user_name,
             "latest_user_text": latest_user_message,
         }
 
+        self.log_message.emit(f"🔍 正在匹配知识库：{latest_user_message[:30]}...")
+
+        # 先尝试知识库匹配
+        kb_result = self.knowledge_service.find_answer_detail(latest_user_message, self.knowledge_threshold)
+
+        if kb_result.get("matched"):
+            # 知识库匹配成功
+            answer = kb_result.get("answer", "")
+            self.log_message.emit(f"✅ 知识库匹配成功 (score={kb_result.get('score', 0):.2f}): {answer[:50]}...")
+            self._send_reply(answer)
+        else:
+            # 知识库未匹配，调用 LLM
+            self.log_message.emit(f"🤖 知识库未匹配，调用 LLM 回复...")
+            self._call_llm_reply(latest_user_message)
+
+    def _call_llm_reply(self, text: str):
+        """调用 LLM 生成回复"""
         # 构建客服 prompt
         system_prompt = f"""你是假发店温柔客服，专服务中老年人，说话简短口语、像真人。
 规则：
@@ -209,10 +242,9 @@ class MessageProcessor(QObject):
 4. 只给结论 + 简单好处
 5. 每句话结尾加 emoji
 6. 禁止出现任何联系方式
-用户问题：{latest_user_message}"""
+用户问题：{text}"""
 
-        self.log_message.emit(f"🤖 正在调用 LLM 回复：{latest_user_message[:30]}...")
-        self.llm_service.generate_reply(latest_user_message, system_prompt=system_prompt)
+        self.llm_service.generate_reply(text, system_prompt=system_prompt)
 
     def _on_llm_reply(self, request_id: str, reply_text: str):
         """LLM 回复响应"""
@@ -220,11 +252,7 @@ class MessageProcessor(QObject):
             self._reset_cycle()
             return
 
-        user_name = self._pending_reply.get("user_name", "未知用户")
-
         self.log_message.emit(f"✅ LLM 回复生成成功：{reply_text[:50]}...")
-
-        # 发送回复
         self._send_reply(reply_text)
 
     def _on_llm_error(self, request_id: str, error: str):

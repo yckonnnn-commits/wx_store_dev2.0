@@ -20,6 +20,7 @@ class LeftPanel(QFrame):
     stop_clicked = Signal()
     refresh_clicked = Signal()
     grab_clicked = Signal()
+    reload_kb_clicked = Signal()
     
     # 注意: model_changed 信号已移除，模型切换功能移动到了 ModelConfigTab
 
@@ -80,7 +81,7 @@ class LeftPanel(QFrame):
         title.setObjectName("SideTitle")
         title_layout.addWidget(title)
         
-        subtitle = QLabel("聊天记录抓取助手")
+        subtitle = QLabel("v1.2 知识库 +LLM 自动回复")
         subtitle.setObjectName("SideSubtitle")
         title_layout.addWidget(subtitle)
         
@@ -130,6 +131,13 @@ class LeftPanel(QFrame):
         self.grab_btn.setMinimumHeight(44)
         self.grab_btn.clicked.connect(self.grab_clicked.emit)
         grid.addWidget(self.grab_btn, 2, 0, 1, 2) # Full width
+
+        self.reload_kb_btn = QPushButton("📚  重载知识库")
+        self.reload_kb_btn.setObjectName("SidebarSecondary")
+        self.reload_kb_btn.setCursor(Qt.PointingHandCursor)
+        self.reload_kb_btn.setMinimumHeight(44)
+        self.reload_kb_btn.clicked.connect(self.reload_kb_clicked.emit)
+        grid.addWidget(self.reload_kb_btn, 3, 0, 1, 2) # Full width
 
         actions_layout.addLayout(grid)
         layout.addWidget(actions_widget)

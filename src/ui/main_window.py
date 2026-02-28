@@ -37,7 +37,7 @@ class MainWindow(QWidget):
 
     def __init__(self, config_manager: ConfigManager, knowledge_repository: KnowledgeRepository, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("AI 智能客服系统 - LLM 版")
+        self.setWindowTitle("AI 智能客服系统 v1.2（知识库 +LLM）")
         self.resize(1600, 900)
 
         self.config_manager = config_manager
@@ -135,6 +135,7 @@ class MainWindow(QWidget):
         self.left_panel.stop_clicked.connect(self._on_stop)
         self.left_panel.refresh_clicked.connect(self._on_refresh)
         self.left_panel.grab_clicked.connect(self._on_grab_test)
+        self.left_panel.reload_kb_clicked.connect(self._on_reload_kb)
 
         self.nav_group.buttonClicked.connect(lambda btn: self.stack.setCurrentIndex(self.nav_group.id(btn)))
 
@@ -170,6 +171,9 @@ class MainWindow(QWidget):
     def _on_grab_test(self):
         self.left_panel.append_log("开始抓取聊天记录...")
         self.message_processor.grab_and_display_chat_history(auto_reply=False)
+
+    def _on_reload_kb(self):
+        self.message_processor.reload_knowledge_base()
 
     def _on_model_changed(self, model_name: str):
         self.config_manager.set_current_model(model_name)
