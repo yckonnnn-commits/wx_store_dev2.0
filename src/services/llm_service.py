@@ -56,7 +56,7 @@ class LLMWorker(QThread):
         model = self.config.get("model", "")
 
         if not api_key:
-            raise ValueError("API密钥未配置")
+            raise ValueError("API 密钥未配置")
 
         if self.model_name in ("ChatGPT", "DeepSeek", "kimi"):
             return self._call_openai_compatible(api_key, base_url, model)
@@ -64,7 +64,7 @@ class LLMWorker(QThread):
             return self._call_gemini(api_key, base_url, model)
         if self.model_name == "阿里千问":
             return self._call_qwen(api_key, base_url, model)
-        raise ValueError(f"不支持的模型: {self.model_name}")
+        raise ValueError(f"不支持的模型：{self.model_name}")
 
     def _call_openai_compatible(self, api_key: str, base_url: str, model: str) -> str:
         url = f"{base_url.rstrip('/')}/chat/completions"
@@ -115,7 +115,7 @@ class LLMWorker(QThread):
             data = json.loads(resp.read().decode("utf-8"))
             if "candidates" in data and data["candidates"]:
                 return data["candidates"][0]["content"]["parts"][0]["text"]
-            raise ValueError("Gemini API返回格式错误")
+            raise ValueError("Gemini API 返回格式错误")
 
     def _call_qwen(self, api_key: str, base_url: str, model: str) -> str:
         url = f"{base_url.rstrip('/')}/api/v1/services/aigc/text-generation/generation"
@@ -128,7 +128,7 @@ class LLMWorker(QThread):
         for msg in self.messages:
             role = "用户" if msg.get("role") == "user" else "助手"
             prompt += f"{role}: {msg.get('content', '')}\n"
-        prompt += "助手: "
+        prompt += "助手："
 
         payload = {
             "model": model,
@@ -167,6 +167,7 @@ class LLMService(QObject):
         user_message: str,
         conversation_history: List[Dict] = None,
         request_id: str = None,
+        system_prompt: str = None,
     ) -> str:
         import uuid
 
@@ -176,7 +177,7 @@ class LLMService(QObject):
         model_config = self.config_manager.get_model_config(model_name)
 
         if not model_config.get("api_key"):
-            self.error_occurred.emit(rid, f"{model_name} 的API密钥未配置")
+            self.error_occurred.emit(rid, f"{model_name} 的 API 密钥未配置")
             return rid
 
         messages = []
@@ -184,12 +185,15 @@ class LLMService(QObject):
             messages.extend(conversation_history)
         messages.append({"role": "user", "content": user_message})
 
+        # 使用自定义 system prompt 或默认
+        current_system_prompt = system_prompt if system_prompt else self._system_prompt
+
         worker = LLMWorker(
             request_id=rid,
             model_name=model_name,
             config=model_config,
             messages=messages,
-            system_prompt=self._system_prompt,
+            system_prompt=current_system_prompt,
         )
         worker.result_ready.connect(self._on_worker_result)
         self._workers[rid] = worker
@@ -201,7 +205,7 @@ class LLMService(QObject):
         model_config = self.config_manager.get_model_config(model_name)
 
         if not model_config.get("api_key"):
-            return False, f"{model_name} 的API密钥未配置"
+            return False, f"{model_name} 的 API 密钥未配置"
 
         messages = []
         if conversation_history:
@@ -267,9 +271,9 @@ class LLMService(QObject):
         config = self.config_manager.get_model_config(model_name)
 
         if not config.get("api_key"):
-            return False, "API密钥未配置"
+            return False, "API 密钥未配置"
         if not config.get("base_url"):
-            return False, "API地址未配置"
+            return False, "API 地址未配置"
 
         try:
             worker = LLMWorker(
@@ -283,7 +287,7 @@ class LLMService(QObject):
             worker._call_api()
             return True, "连接成功"
         except Exception as exc:
-            return False, f"连接失败: {str(exc)}"
+            return False, f"连接失败：{str(exc)}"
 
     def cancel_request(self, request_id: str):
         if request_id in self._workers:

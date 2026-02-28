@@ -1,7 +1,6 @@
 """
-主窗口 - 精简版（仅抓取功能）
-功能：未读检测 -> 点击进入 -> 抓取聊天记录 -> 显示
-已禁用：Agent 决策、自动回复、媒体发送
+主窗口 - 精简版（带 LLM 回复）
+功能：未读检测 -> 点击进入 -> 抓取聊天记录 -> LLM 自动回复
 """
 
 from __future__ import annotations
@@ -24,8 +23,8 @@ from ..core.session_manager import SessionManager
 from ..data.config_manager import ConfigManager
 from ..data.knowledge_repository import KnowledgeRepository
 from ..services.browser_service import BrowserService
+from ..services.llm_service import LLMService
 from ..utils.constants import MAIN_STYLE_SHEET, WECHAT_STORE_URL
-from .agent_status_tab import AgentStatusTab
 from .browser_tab import BrowserTab
 from .image_management_tab import ImageManagementTab
 from .knowledge_tab import KnowledgeTab
@@ -34,11 +33,11 @@ from .model_config_tab import ModelConfigTab
 
 
 class MainWindow(QWidget):
-    """主窗口 - 仅抓取模式"""
+    """主窗口 - 带 LLM 回复"""
 
     def __init__(self, config_manager: ConfigManager, knowledge_repository: KnowledgeRepository, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("AI 智能客服系统 - 抓取版")
+        self.setWindowTitle("AI 智能客服系统 - LLM 版")
         self.resize(1600, 900)
 
         self.config_manager = config_manager
@@ -46,6 +45,7 @@ class MainWindow(QWidget):
 
         self.browser_service = None
         self.session_manager = SessionManager()
+        self.llm_service = None
         self.message_processor = None
 
         self._setup_ui()
@@ -118,10 +118,14 @@ class MainWindow(QWidget):
         content_layout.addWidget(self.stack, 1)
         main_layout.addWidget(content, 1)
 
+        # 初始化服务
         self.browser_service = BrowserService(self.browser_tab.get_web_view())
+        self.llm_service = LLMService(self.config_manager)
         self.message_processor = MessageProcessor(
             browser_service=self.browser_service,
             session_manager=self.session_manager,
+            llm_service=self.llm_service,
+            config_manager=self.config_manager,
         )
 
         self._update_model_badge()
@@ -138,7 +142,7 @@ class MainWindow(QWidget):
 
         self.message_processor.status_changed.connect(self._on_status_changed)
         self.message_processor.log_message.connect(self._on_log_message)
-        self.message_processor.chat_data_received.connect(self._on_chat_data_received)
+        self.message_processor.reply_sent.connect(self._on_reply_sent)
 
         self.model_config_tab.config_saved.connect(self._on_config_saved)
         self.model_config_tab.log_message.connect(self._on_log_message)
@@ -190,8 +194,8 @@ class MainWindow(QWidget):
         stats = self.session_manager.get_stats()
         self.left_panel.update_session_count(stats.get("total_sessions", 0))
 
-    def _on_chat_data_received(self, data: dict):
-        """处理抓取到的聊天数据"""
+    def _on_reply_sent(self, user_name: str, reply_text: str):
+        """回复发送成功"""
         pass
 
     def _on_config_saved(self):
@@ -204,5 +208,7 @@ class MainWindow(QWidget):
     def closeEvent(self, event):
         if self.message_processor and self.message_processor.is_running():
             self.message_processor.stop()
+        if self.llm_service:
+            self.llm_service.cleanup()
         self.config_manager.save()
         event.accept()
