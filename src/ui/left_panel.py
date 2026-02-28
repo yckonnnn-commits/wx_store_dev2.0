@@ -80,7 +80,7 @@ class LeftPanel(QFrame):
         title.setObjectName("SideTitle")
         title_layout.addWidget(title)
         
-        subtitle = QLabel("智能客服助手")
+        subtitle = QLabel("聊天记录抓取助手")
         subtitle.setObjectName("SideSubtitle")
         title_layout.addWidget(subtitle)
         
@@ -102,7 +102,7 @@ class LeftPanel(QFrame):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
 
-        self.start_btn = QPushButton("▶  启动 AI")
+        self.start_btn = QPushButton("▶  启动抓取")
         self.start_btn.setObjectName("SidebarPrimary")
         self.start_btn.setCursor(Qt.PointingHandCursor)
         self.start_btn.setMinimumHeight(48)
@@ -274,7 +274,7 @@ class LeftPanel(QFrame):
             self.start_btn.style().polish(self.start_btn)
             if self._spin_timer.isActive():
                 self._spin_timer.stop()
-            self.start_btn.setText("▶  启动 AI")
+            self.start_btn.setText("▶  启动抓取")
         
         if message:
             self.status_badge.setText(message)

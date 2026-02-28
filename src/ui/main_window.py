@@ -1,6 +1,7 @@
 """
-主窗口
-整合 PySide6 多标签页与单一 Agent 主链路。
+主窗口 - 精简版（仅抓取功能）
+功能：未读检测 -> 点击进入 -> 抓取聊天记录 -> 显示
+已禁用：Agent 决策、自动回复、媒体发送
 """
 
 from __future__ import annotations
@@ -19,14 +20,10 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.message_processor import MessageProcessor
-from ..core.private_cs_agent import CustomerServiceAgent
 from ..core.session_manager import SessionManager
 from ..data.config_manager import ConfigManager
 from ..data.knowledge_repository import KnowledgeRepository
-from ..data.memory_store import MemoryStore
 from ..services.browser_service import BrowserService
-from ..services.knowledge_service import KnowledgeService
-from ..services.llm_service import LLMService
 from ..utils.constants import MAIN_STYLE_SHEET, WECHAT_STORE_URL
 from .agent_status_tab import AgentStatusTab
 from .browser_tab import BrowserTab
@@ -37,44 +34,23 @@ from .model_config_tab import ModelConfigTab
 
 
 class MainWindow(QWidget):
-    """主窗口"""
+    """主窗口 - 仅抓取模式"""
 
     def __init__(self, config_manager: ConfigManager, knowledge_repository: KnowledgeRepository, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("AI 智能客服系统")
+        self.setWindowTitle("AI 智能客服系统 - 抓取版")
         self.resize(1600, 900)
 
         self.config_manager = config_manager
         self.knowledge_repository = knowledge_repository
 
-        self._init_services()
+        self.browser_service = None
+        self.session_manager = SessionManager()
+        self.message_processor = None
+
         self._setup_ui()
         self._connect_signals()
         self._load_wechat_store()
-
-    def _init_services(self):
-        self.browser_service = None
-
-        self.knowledge_service = KnowledgeService(
-            self.knowledge_repository,
-            address_config_path=Path("config") / "address.json",
-        )
-        self.llm_service = LLMService(self.config_manager)
-        self.session_manager = SessionManager()
-
-        self.memory_store = MemoryStore(Path("config") / "agent_memory.json")
-        self.agent = CustomerServiceAgent(
-            knowledge_service=self.knowledge_service,
-            llm_service=self.llm_service,
-            memory_store=self.memory_store,
-            images_dir=Path("images"),
-            image_categories_path=Path("config") / "image_categories.json",
-            system_prompt_doc_path=Path("docs") / "system_prompt_private_ai_customer_service.md",
-            playbook_doc_path=Path("docs") / "private_ai_customer_service_playbook.md",
-            reply_templates_path=Path("config") / "reply_templates.json",
-            media_whitelist_path=Path("config") / "media_whitelist.json",
-        )
-        self.message_processor = None
 
     def _setup_ui(self):
         self.setStyleSheet(MAIN_STYLE_SHEET)
@@ -106,7 +82,6 @@ class MainWindow(QWidget):
             ("knowledge", "知识库管理"),
             ("model", "模型配置"),
             ("images", "图片与视频管理"),
-            ("agent", "Agent策略/状态"),
         ]
         self.nav_buttons = {}
         for index, (key, label) in enumerate(nav_items):
@@ -140,9 +115,6 @@ class MainWindow(QWidget):
         self.image_management_tab = ImageManagementTab()
         self.stack.addWidget(self.image_management_tab)
 
-        self.agent_tab = AgentStatusTab()
-        self.stack.addWidget(self.agent_tab)
-
         content_layout.addWidget(self.stack, 1)
         main_layout.addWidget(content, 1)
 
@@ -150,11 +122,9 @@ class MainWindow(QWidget):
         self.message_processor = MessageProcessor(
             browser_service=self.browser_service,
             session_manager=self.session_manager,
-            agent=self.agent,
         )
 
         self._update_model_badge()
-        self._refresh_agent_tab_status()
 
     def _connect_signals(self):
         self.left_panel.start_clicked.connect(self._on_start)
@@ -168,21 +138,13 @@ class MainWindow(QWidget):
 
         self.message_processor.status_changed.connect(self._on_status_changed)
         self.message_processor.log_message.connect(self._on_log_message)
-        self.message_processor.reply_sent.connect(self._on_reply_sent)
-        self.message_processor.error_occurred.connect(self._on_error)
-        self.message_processor.decision_ready.connect(self.agent_tab.append_decision)
+        self.message_processor.chat_data_received.connect(self._on_chat_data_received)
 
         self.model_config_tab.config_saved.connect(self._on_config_saved)
         self.model_config_tab.log_message.connect(self._on_log_message)
         self.model_config_tab.current_model_changed.connect(self._on_model_changed)
 
         self.image_management_tab.log_message.connect(self._on_log_message)
-        self.image_management_tab.categories_updated.connect(lambda _cats: self.message_processor.reload_media_config())
-        self.image_management_tab.categories_updated.connect(lambda _cats: self._refresh_agent_tab_status())
-
-        self.agent_tab.reload_prompt_clicked.connect(self._on_reload_agent_prompt)
-        self.agent_tab.reload_media_clicked.connect(self._on_reload_agent_media)
-        self.agent_tab.options_changed.connect(self._on_agent_options_changed)
 
     def _load_wechat_store(self):
         self.browser_tab.load_url(WECHAT_STORE_URL)
@@ -208,7 +170,7 @@ class MainWindow(QWidget):
     def _on_model_changed(self, model_name: str):
         self.config_manager.set_current_model(model_name)
         self.config_manager.save()
-        self.left_panel.append_log(f"🤖 切换到模型: {model_name}")
+        self.left_panel.append_log(f"🤖 切换到模型：{model_name}")
         self._update_model_badge()
         self.model_config_tab.set_current_model(model_name)
 
@@ -228,40 +190,19 @@ class MainWindow(QWidget):
         stats = self.session_manager.get_stats()
         self.left_panel.update_session_count(stats.get("total_sessions", 0))
 
-    def _on_reply_sent(self, session_id: str, reply_text: str):
-        self._refresh_agent_tab_status()
-
-    def _on_error(self, error: str):
-        self.left_panel.append_log(f"❌ 错误: {error}")
+    def _on_chat_data_received(self, data: dict):
+        """处理抓取到的聊天数据"""
+        pass
 
     def _on_config_saved(self):
         self._update_model_badge()
         self.model_config_tab.set_current_model(self.config_manager.get_current_model())
 
-    def _on_reload_agent_prompt(self):
-        self.message_processor.reload_prompt_docs()
-        self._refresh_agent_tab_status()
-
-    def _on_reload_agent_media(self):
-        self.message_processor.reload_media_config()
-        self._refresh_agent_tab_status()
-
-    def _on_agent_options_changed(self, use_kb: bool, threshold: float):
-        self.agent.set_options(use_knowledge_first=use_kb, knowledge_threshold=threshold)
-        self.left_panel.append_log(f"⚙️ Agent参数已更新: use_kb={use_kb}, threshold={threshold:.2f}")
-        self._refresh_agent_tab_status()
-
     def _update_model_badge(self):
         self.model_badge.setText(self.config_manager.get_current_model())
-
-    def _refresh_agent_tab_status(self):
-        self.agent_tab.update_status(self.agent.get_status())
 
     def closeEvent(self, event):
         if self.message_processor and self.message_processor.is_running():
             self.message_processor.stop()
-
-        self.llm_service.cleanup()
-        self.memory_store.save()
         self.config_manager.save()
         event.accept()
